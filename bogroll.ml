@@ -159,9 +159,7 @@ let opf id title filenames imagefilenames =
       <dc:title>" ^ title ^ "</dc:title>
       <dc:language>en</dc:language>
       <dc:identifier id=\"EPB-UUID\">"^id^"</dc:identifier>
-      <dc:creator opf:role=\"aut\" opf:file-as=\"Maupassant, Guy De\">Guy De Maupassant</dc:creator>
-      <dc:publisher>epubBooks (www.epubbooks.com)</dc:publisher>
-      <dc:creator opf:file-as=\"Austen, Jane\" opf:role=\"aut\">Jane Austen</dc:creator>
+      <dc:creator opf:role=\"aut\">Bog Roll</dc:creator>
    </metadata>"
   in
   let map_element_mime = 
@@ -190,11 +188,8 @@ let toc id title filenames =
       <meta name=\"dtb:totalPageCount\" content=\"0\"/>
       <meta name=\"dtb:maxPageNumber\" content=\"0\"/>
    </head>
-   <docTitle>
-      <text>Pierre and Jean</text>
-   </docTitle>
   <docAuthor>
-    <text>Austen, Jane</text>
+    <text>Bog Roll</text>
   </docAuthor>" in
   let tail = "</ncx>" in
   let counter = ref 0 in
