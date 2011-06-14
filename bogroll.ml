@@ -143,25 +143,16 @@ let toc title filenames =
   <docAuthor>
     <text>Austen, Jane</text>
   </docAuthor>" in
-  let _ = "
-     <navMap>
-      <navPoint id=\"content\" playOrder=\"1\">
-         <navLabel>
-            <text>"^title^"</text>
-         </navLabel>
-         <content src=\"content.xhtml\"/>
-      </navPoint>
-   </navMap>" in
   let tail = "</ncx>" in
   let counter = ref 0 in
   let new_counter () =
     counter := !counter + 1;
     string_of_int !counter
   in
-  let navpoint name = 
+  let navpoint (title, name) = 
     Element ("navPoint", ["id","content"; "playOrder",new_counter()], [
                Element ("navLabel", [], [
-                          Element ("text", [], [PCData name])
+                          Element ("text", [], [PCData title])
                         ]);
                Element ("content", ["src",name], [])
              ])
@@ -186,13 +177,15 @@ let main infile outdir =
       http_get infile 
   in
   let (title, items) = get_atom_ls (Xml.parse_string body) in
+  let titles = fst (List.split items) in
   let items = List.map (chaperify) items in
   let file_names = fst (List.split items) in
+  let titles2file_names = List.combine titles file_names in
     write_file outdir "mimetype" "application/epub+zip";
     write_file (outdir ^ "/META-INF") "container.xml" container;
     List.iter (fun (name, content) -> write_file (outdir ^ "/OPS") name  content) items;
     write_file (outdir ^ "/OPS") "content.opf"  (opf title file_names);
-    write_file (outdir ^ "/OPS") "toc.ncx"  (toc title file_names)
+    write_file (outdir ^ "/OPS") "toc.ncx"  (toc title titles2file_names)
 ;;
 
 main Sys.argv.(1) Sys.argv.(2)
