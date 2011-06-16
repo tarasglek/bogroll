@@ -55,7 +55,7 @@ let read f =
 let rec fudge_into_xml text =
   try 
     Xml.parse_string ("<p>" ^ text ^ "</p>")
-  with Xml.Error (Xml.EndOfTagExpected tag, pos)->
+  with | Xml.Error (Xml.EndOfTagExpected tag, pos)->
     let (a, b) = Xml.abs_range pos in
     let len = String.length tag in
     let rec reverse_scan i =
@@ -70,6 +70,8 @@ let rec fudge_into_xml text =
     fudge_into_xml text
 (*      print_string ((String.sub text start (tokend - start+len*4))^"\n");
     Element ("p", [], [Xml.PCData text]) *)
+    | _ -> PCData text
+
 
 let counter = ref 1
 
@@ -216,7 +218,12 @@ let container =
    </rootfiles>
 </container>"
 
-let main infile outdir =
+let run args =
+    let _ = Unix.create_process args.(0) args Unix.stdin Unix.stdout Unix.stderr in
+    let _ = Unix.wait () in
+      ()
+  
+let main outdir infile =
   (* will take a local filename or a url *)
   let body =
     try
@@ -226,6 +233,8 @@ let main infile outdir =
   in
   let id = infile in
   let (title, items) = get_atom_ls (Xml.parse_string body) in
+  let outfile = outdir ^ "/" ^ title ^ ".epub" in
+  let outdir = outfile ^ ".tmp" in
   let titles = fst (List.split items) in
   let items = List.map (chaperify) items in
   let file_names = fst (List.split items) in
@@ -235,9 +244,31 @@ let main infile outdir =
     List.iter (fun (name, content) -> write_file_to_dir (outdir ^ "/OPS") name content) items;
     List.iter (fun (name, content) -> write_file_to_dir (outdir ^ "/OPS") name content) !images;
     write_file_to_dir (outdir ^ "/OPS") "content.opf"  (opf id title file_names (fst (List.split !images)));
-    write_file_to_dir (outdir ^ "/OPS") "toc.ncx"  (toc id title titles2file_names)
+    write_file_to_dir (outdir ^ "/OPS") "toc.ncx"  (toc id title titles2file_names);
+    let oldcwd = Unix.getcwd() in
+    let outfile = if outfile.[0] = '/' then outfile else oldcwd ^ "/" ^ outfile in
+    Unix.chdir outdir;
+    (try 
+      Unix.unlink outfile
+    with _ -> ());
+    let args = [|"zip"; "-0"; "-X"; outfile; "mimetype"|] in
+    run args;
+    args.(Array.length args - 1) <- "-r";
+    args.(1) <- "-9" ;
+    let args = Array.append args [|"META-INF"; "OPS"|] in
+    run args;
+    Unix.chdir oldcwd;
+    run [|"rm"; "-r"; outdir|];
+(*    (cd epub && zip -X -0 -r -r -UN=UTF8  ../epub.epub mimetype META-INF OPS/ ) *)
+    print_endline "finished"
 ;;
 
+
 Printexc.record_backtrace true;
-main Sys.argv.(1) Sys.argv.(2);
+for i = 2 to Array.length Sys.argv - 1 do
+  print_endline ("Processing " ^ Sys.argv.(i));
+  main Sys.argv.(1) Sys.argv.(i) 
+done;
 Printexc.print_backtrace stdout
+
+
