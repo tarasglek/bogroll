@@ -1,6 +1,6 @@
 EXTS = $(subst ml,cmo, $(wildcard *.ml))
-BLOGS=americasview babbage buttonwood charlemagne dailychart  eastern-approaches freeexchange gulliver newsbook prospero schumpeter
-NOT_WORKING=banyan democracyinamerica
+BLOGS=americasview babbage buttonwood charlemagne dailychart  eastern-approaches freeexchange gulliver newsbook prospero schumpeter banyan democracyinamerica
+NOT_WORKING=
 all: bogroll $(EXTS)
 
 bogroll: bogroll.ml

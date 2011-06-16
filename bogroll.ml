@@ -23,14 +23,20 @@ let get_subelement_PCData ls name =
 let filter_items ls name = 
   List.filter (function Element(ename, _, _) -> ename = name | _ -> false) ls
    
+type metadata = {title:string; date:string; author:string}
+
 let reduce_item = function 
   | Element("entry",_, ls) -> 
       let title = get_subelement_PCData ls "title" in
       let content = get_subelement_PCData ls "content" in
-      (title,content)
+      let date = String.sub (get_subelement_PCData ls "published") 0 10 in
+      let authorE = get_subelement ls "author" in
+      let author = (try 
+                      (match authorE with 
+                        | Element (_,_,ls) -> get_subelement_PCData ls "name")
+                    with _ -> "") in
+      ({title=title; date=date; author=author}, content)
   | _ -> failwith "oops"
-
-type info = {title:string; summary:string}
 
 (* Returns  (title, [title*content]) *)
 let get_atom_ls = function 
@@ -40,7 +46,6 @@ let get_atom_ls = function
       let ls = List.map reduce_item ls in
       (title, ls)
   | _ -> raise Not_found
-
 
 let read f = 
   let ch = open_in f in
@@ -64,13 +69,13 @@ let rec fudge_into_xml text =
       else
         reverse_scan (String.rindex_from text (i - 1) '<')
     in
-    let start = reverse_scan (a - 1) in
+    let start = reverse_scan ((min a (String.length text)) - 1) in
     let tokend = String.index_from text (start + 1 + len) '>' + 1 in
     let text = String.sub text 0 tokend ^ "</" ^ tag ^ ">" ^ String.sub text tokend (String.length text - tokend) in
     fudge_into_xml text
 (*      print_string ((String.sub text start (tokend - start+len*4))^"\n");
     Element ("p", [], [Xml.PCData text]) *)
-    | _ -> PCData text
+    | Xml.Error (msg, pos) -> PCData ((Xml.error_msg msg) ^ " on line " ^ (string_of_int (fst (Xml.abs_range pos))) ^ " " ^ text)
 
 
 let counter = ref 1
@@ -116,21 +121,25 @@ let rec fetch_images =
   in
   function
   | Element ("img", attrls, childls) -> 
-      Element ("img", List.map swap_img attrls, childls)
+      (try 
+         Element ("img", List.map swap_img attrls, childls)
+       with Http_client.Http_error _ -> PCData "[Missing image]")
   | PCData _ as p -> p
   | Element (a,b,ls) -> Element (a, b, List.map fetch_images ls)
 
-let chaperify (title, body) =
+let chaperify (metadata, body) =
   let head = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <!DOCTYPE html
   PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">
 " in
   let id = new_chapter_id () in
-  let ls = [Element( "h3", [], [Xml.PCData title]); fudge_into_xml body] in
+  let ls = Element( "h3", [], [Xml.PCData metadata.title])::
+    Element( "p", [], [Element ("i", [], [PCData (metadata.date ^ " " ^ metadata.author)])])::
+    [fudge_into_xml body] in
   let e = 
     Element ("html", [("xmlns", "http://www.w3.org/1999/xhtml"); ("xml:lang", "en")], [
                Element ("head", [], [
-                          Element ("title", [], [Xml.PCData title]);
+                          Element ("title", [], [Xml.PCData metadata.title]);
                           Element ("meta", ["http-equiv","Content-Type";"content","application/xhtml+xml; charset=utf-8"], []);
                         ]);
                Element ("body", [], ls)]
@@ -235,7 +244,7 @@ let main outdir infile =
   let (title, items) = get_atom_ls (Xml.parse_string body) in
   let outfile = outdir ^ "/" ^ title ^ ".epub" in
   let outdir = outfile ^ ".tmp" in
-  let titles = fst (List.split items) in
+  let titles = List.map (fun x -> x.title) (fst (List.split items)) in
   let items = List.map (chaperify) items in
   let file_names = fst (List.split items) in
   let titles2file_names = List.combine titles file_names in
