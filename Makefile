@@ -4,7 +4,7 @@ NOT_WORKING=
 all: bogroll $(EXTS)
 
 bogroll: bogroll.ml
-	ocamlfind ocamlc -g -package unix,dynlink,xml-light,netclient -linkpkg -linkall -o $@ $+
+	ocamlfind ocamlc -g -package unix,dynlink,xml-light,netclient,str -linkpkg -linkall -o $@ $+
 
 clean:
 	rm -f *.cm[io] parser.ml lexer.ml $(EXTS)

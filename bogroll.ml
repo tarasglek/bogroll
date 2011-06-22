@@ -108,6 +108,7 @@ let rec fetch_images =
         try 
           read tmpname 
         with _ -> 
+          let url = Str.global_replace (Str.regexp_string " ") "%20" url in
           let content = http_get url in
             write_file tmpname content;
             content
