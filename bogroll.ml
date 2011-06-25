@@ -51,7 +51,7 @@ let reduce_item = function
   | _ -> failwith "oops"
 
 let drop_older_items items =
-  let date = date2days ((fst @@ List.hd) items).date in
+  let date = try date2days ((fst @@ List.hd) items).date with _ -> 0 in
   let rec drop_older = function 
     | (metadata, item) as a::ls when date - (date2days metadata.date) <= 7 ->
         a::drop_older ls
@@ -64,7 +64,7 @@ let get_atom_ls = function
       let title = get_subelement_PCData ls "title" in
       let ls = filter_items ls "entry" in
       let ls = List.map reduce_item ls in
-      (title,drop_older_items ls)
+      (title, ls)
   | _ -> raise Not_found
 
 let read f = 
@@ -281,27 +281,36 @@ let publish outdir id title items =
     Unix.chdir oldcwd;
     run [|"rm"; "-r"; outdir|];
 (*    (cd epub && zip -X -0 -r -r -UN=UTF8  ../epub.epub mimetype META-INF OPS/ ) *)
-    print_endline "finished"
+    print_endline ("finished " ^ outfile)
 
-let main outdir infile = 
+let url2content infile = 
+  print_endline ("Processing " ^ infile);
   (* will take a local filename or a url *)
   let body =
     try
-      read infile
-    with _ ->
-      http_get infile 
+       read infile
+     with _ ->
+       http_get infile 
+   in
+   let id = infile in
+   let (title, items) = get_atom_ls (Xml.parse_string body) in
+     (*publish outdir id title items*)
+     List.map (fun (metadata, content) -> ({metadata with author = (metadata.author ^ " | " ^ title)}, content)) items
+
+let go atomls outdir =
+  let items = (List.concat @@ (List.map url2content)) atomls in  
+  let rev_compare (m1,_) (m2,_) = 
+    date2days m2.date - date2days m1.date
   in
-  let id = infile in
-  let (title, items) = get_atom_ls (Xml.parse_string body) in
-    publish outdir id title items
+  let items = List.sort rev_compare items in
+  let items = drop_older_items items in
+  let id = "bogroll" in
+    publish outdir id "Economist Blogs" items
 ;;
 
-
 Printexc.record_backtrace true;
-for i = 2 to Array.length Sys.argv - 1 do
-  print_endline ("Processing " ^ Sys.argv.(i));
-  main Sys.argv.(1) Sys.argv.(i) 
-done;
+let _::outdir::atomls = Array.to_list Sys.argv in
+go atomls outdir;
 Printexc.print_backtrace stdout
 
 
