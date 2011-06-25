@@ -2,6 +2,7 @@
 #use "topfind";;
 #require "netclient";;
 #require "xml-light";;
+#require "str";;
 
 make  && (rm -fR epub  epub.epub;./bogroll /tmp/atom.xml `pwd`/epub) && (cd epub && zip -X -0 -r -r -UN=UTF8  ../epub.epub mimetype META-INF OPS/ )
 
@@ -9,6 +10,8 @@ java -jar epubcheck-1.1.jar epub.epub
 *)
 open Http_client.Convenience
 open Xml
+
+let (@@) a b = function x -> a (b x);;
 
 let get_PCData = function 
   | Element(_,_,[Xml.PCData str]) -> str 
@@ -25,6 +28,15 @@ let filter_items ls name =
    
 type metadata = {title:string; date:string; author:string}
 
+(* most ghetto calendaring code ever *)
+let parse_date str =
+  let year::month::day::_ = List.map int_of_string (Str.split (Str.regexp_string "-") str) in
+    (year-2000,month,day)
+
+let date2days str =
+  let (year,month,day) = parse_date str in
+    day + (month + year * 12) * 31
+
 let reduce_item = function 
   | Element("entry",_, ls) -> 
       let title = get_subelement_PCData ls "title" in
@@ -38,13 +50,21 @@ let reduce_item = function
       ({title=title; date=date; author=author}, content)
   | _ -> failwith "oops"
 
+let drop_older_items items =
+  let date = date2days ((fst @@ List.hd) items).date in
+  let rec drop_older = function 
+    | (metadata, item) as a::ls when date - (date2days metadata.date) <= 7 ->
+        a::drop_older ls
+    | _ -> [] in
+  drop_older items 
+
 (* Returns  (title, [title*content]) *)
 let get_atom_ls = function 
   | Element("feed", _, ls) ->
       let title = get_subelement_PCData ls "title" in
       let ls = filter_items ls "entry" in
       let ls = List.map reduce_item ls in
-      (title, ls)
+      (title,drop_older_items ls)
   | _ -> raise Not_found
 
 let read f = 
@@ -232,17 +252,8 @@ let run args =
     let _ = Unix.create_process args.(0) args Unix.stdin Unix.stdout Unix.stderr in
     let _ = Unix.wait () in
       ()
-  
-let main outdir infile =
-  (* will take a local filename or a url *)
-  let body =
-    try
-      read infile
-    with _ ->
-      http_get infile 
-  in
-  let id = infile in
-  let (title, items) = get_atom_ls (Xml.parse_string body) in
+
+let publish outdir id title items =
   let outfile = outdir ^ "/" ^ title ^ ".epub" in
   let outdir = outfile ^ ".tmp" in
   let titles = List.map (fun x -> x.title) (fst (List.split items)) in
@@ -271,6 +282,18 @@ let main outdir infile =
     run [|"rm"; "-r"; outdir|];
 (*    (cd epub && zip -X -0 -r -r -UN=UTF8  ../epub.epub mimetype META-INF OPS/ ) *)
     print_endline "finished"
+
+let main outdir infile = 
+  (* will take a local filename or a url *)
+  let body =
+    try
+      read infile
+    with _ ->
+      http_get infile 
+  in
+  let id = infile in
+  let (title, items) = get_atom_ls (Xml.parse_string body) in
+    publish outdir id title items
 ;;
 
 
