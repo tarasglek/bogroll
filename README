@@ -1,0 +1,1 @@
+bogroll is a plain blog to epub aggregator. Given a list of blogs, it will merge them into a single epub. Only the last 7 days (from the newest entry) are kept.

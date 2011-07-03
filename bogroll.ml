@@ -26,7 +26,7 @@ let get_subelement_PCData ls name =
 let filter_items ls name = 
   List.filter (function Element(ename, _, _) -> ename = name | _ -> false) ls
    
-type metadata = {title:string; date:string; author:string}
+type metadata = {title:string; date:string; author:string; link:string;}
 
 (* most ghetto calendaring code ever *)
 let parse_date str =
@@ -37,17 +37,24 @@ let date2days str =
   let (year,month,day) = parse_date str in
     day + (month + year * 12) * 31
 
+
+
+let get_attr attr = function
+  | Element ("link", attrs, _) as e -> List.assoc attr attrs 
+        
+
 let reduce_item = function 
   | Element("entry",_, ls) -> 
       let title = get_subelement_PCData ls "title" in
       let content = get_subelement_PCData ls "content" in
       let date = String.sub (get_subelement_PCData ls "published") 0 10 in
       let authorE = get_subelement ls "author" in
+      let link = get_attr "href"(get_subelement ls "link") in
       let author = (try 
                       (match authorE with 
                         | Element (_,_,ls) -> get_subelement_PCData ls "name")
                     with _ -> "") in
-      ({title=title; date=date; author=author}, content)
+      ({title=title; date=date; author=author; link=link}, content)
   | _ -> failwith "oops"
 
 let drop_older_items items =
@@ -154,7 +161,7 @@ let chaperify (metadata, body) =
   PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">
 " in
   let id = new_chapter_id () in
-  let ls = Element( "h3", [], [Xml.PCData metadata.title])::
+  let ls = Element( "h3", [], [Element ("a", ["href", metadata.link], [Xml.PCData metadata.title])])::
     Element( "p", [], [Element ("i", [], [PCData (metadata.date ^ " " ^ metadata.author)])])::
     [fudge_into_xml body] in
   let e = 
@@ -311,6 +318,7 @@ let go atomls outdir =
 Printexc.record_backtrace true;
 let _::outdir::atomls = Array.to_list Sys.argv in
 go atomls outdir;
+let _ = exit 0 in
 Printexc.print_backtrace stdout
 
 
