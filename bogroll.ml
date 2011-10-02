@@ -60,7 +60,7 @@ let reduce_item = function
 let drop_older_items items =
   let date = try date2days ((fst @@ List.hd) items).date with _ -> 0 in
   let rec drop_older = function 
-    | (metadata, item) as a::ls when date - (date2days metadata.date) <= 7 ->
+    | (metadata, item) as a::ls when date - (date2days metadata.date) <= 14 ->
         a::drop_older ls
     | _ -> [] in
   drop_older items 
@@ -123,6 +123,11 @@ let write_file_to_dir dir file content =
 
 let images = ref []
 
+let safe_http_get url =
+	try
+	 http_get url
+	with _ -> ""
+
 let rec fetch_images = 
   let fetch_image url =
     let name = String.copy url in
@@ -136,7 +141,7 @@ let rec fetch_images =
           read tmpname 
         with _ -> 
           let url = Str.global_replace (Str.regexp_string " ") "%20" url in
-          let content = http_get url in
+          let content = safe_http_get url in
             write_file tmpname content;
             content
       in
@@ -185,7 +190,9 @@ let get_mime_type filename =
       | "jpg" -> "image/jpeg"
       | "png" -> "image/png"
       | "gif" -> "image/gif"
-      | _ -> raise Not_found
+      | x -> "image/jpeg" 
+(*
+(print_endline x;raise Not_found)*)
     
 
 let opf id title filenames imagefilenames =
@@ -297,7 +304,7 @@ let url2content infile =
     try
        read infile
      with _ ->
-       http_get infile 
+       safe_http_get infile 
    in
    let id = infile in
    let (title, items) = get_atom_ls (Xml.parse_string body) in
