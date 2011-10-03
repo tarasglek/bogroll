@@ -1,7 +1,6 @@
 (* 
 #use "topfind";;
 #require "netclient";;
-#require "xml-light";;
 #require "str";;
 
 make  && (rm -fR epub  epub.epub;./bogroll /tmp/atom.xml `pwd`/epub) && (cd epub && zip -X -0 -r -r -UN=UTF8  ../epub.epub mimetype META-INF OPS/ )
@@ -9,19 +8,26 @@ make  && (rm -fR epub  epub.epub;./bogroll /tmp/atom.xml `pwd`/epub) && (cd epub
 java -jar epubcheck-1.1.jar epub.epub
 *)
 open Http_client.Convenience
-open Xml
+open Nethtml
 
 let (@@) a b = function x -> a (b x);;
 
-let get_PCData = function 
-  | Element(_,_,[Xml.PCData str]) -> str 
-  | _ -> raise Not_found
+exception T of Nethtml.document
+let get_Data = function 
+  | Element(_,_,[Nethtml.Data str]) -> str 
+  | e -> raise (T e)
 
 let get_subelement ls name =
   List.find (function Element (ename, _, _) -> ename = name | _ -> false) ls
 
-let get_subelement_PCData ls name =
-  get_PCData (get_subelement ls name)
+let get_subelement_Data ls name =
+(*  let ls = List.filter (function Element (ename, _, _) -> ename = name | _ -> false) ls in
+  let rec try_every_elemetry = function
+  e::ls -> get_Data (
+*)
+  let e = (get_subelement ls name) in
+  let ret = get_Data e in
+  ret
 
 let filter_items ls name = 
   List.filter (function Element(ename, _, _) -> ename = name | _ -> false) ls
@@ -37,22 +43,19 @@ let date2days str =
   let (year,month,day) = parse_date str in
     day + (month + year * 12) * 31
 
-
-
 let get_attr attr = function
-  | Element ("link", attrs, _) as e -> List.assoc attr attrs 
-        
+  | Element ("link", attrs, _) -> List.assoc attr attrs 
 
 let reduce_item = function 
   | Element("entry",_, ls) -> 
-      let title = get_subelement_PCData ls "title" in
-      let content = get_subelement_PCData ls "content" in
-      let date = String.sub (get_subelement_PCData ls "published") 0 10 in
+      let title = get_subelement_Data ls "title" in
+      let Element (_, _, content) = get_subelement ls "content" in
+      let date = String.sub (get_subelement_Data ls "published") 0 10 in
       let authorE = get_subelement ls "author" in
-      let link = get_attr "href"(get_subelement ls "link") in
+      let link = get_attr "href" (get_subelement ls "link") in
       let author = (try 
                       (match authorE with 
-                        | Element (_,_,ls) -> get_subelement_PCData ls "name")
+                        | Element (_,_,ls) -> get_subelement_Data ls "name")
                     with _ -> "") in
       ({title=title; date=date; author=author; link=link}, content)
   | _ -> failwith "oops"
@@ -60,19 +63,19 @@ let reduce_item = function
 let drop_older_items items =
   let date = try date2days ((fst @@ List.hd) items).date with _ -> 0 in
   let rec drop_older = function 
-    | (metadata, item) as a::ls when date - (date2days metadata.date) <= 14 ->
+    | (metadata, item) as a::ls when date - (date2days metadata.date) <= 28 ->
         a::drop_older ls
     | _ -> [] in
   drop_older items 
 
 (* Returns  (title, [title*content]) *)
 let get_atom_ls = function 
-  | Element("feed", _, ls) ->
-      let title = get_subelement_PCData ls "title" in
+  | Nethtml.Element("feed", _, ls) ->
+      let title = get_subelement_Data ls "title" in
       let ls = filter_items ls "entry" in
       let ls = List.map reduce_item ls in
       (title, ls)
-  | _ -> raise Not_found
+  | _ -> failwith "No root <feed> element found"
 
 let read f = 
   let ch = open_in f in
@@ -83,27 +86,6 @@ let read f =
       | len -> read_loop (ret ^ (String.sub buf 0 len))
   in
     read_loop ""
-
-let rec fudge_into_xml text =
-  try 
-    Xml.parse_string ("<p>" ^ text ^ "</p>")
-  with | Xml.Error (Xml.EndOfTagExpected tag, pos)->
-    let (a, b) = Xml.abs_range pos in
-    let len = String.length tag in
-    let rec reverse_scan i =
-      if text.[i] = '<' && String.sub text (i + 1) len = tag then
-        i
-      else
-        reverse_scan (String.rindex_from text (i - 1) '<')
-    in
-    let start = reverse_scan ((min a (String.length text)) - 1) in
-    let tokend = String.index_from text (start + 1 + len) '>' + 1 in
-    let text = String.sub text 0 tokend ^ "</" ^ tag ^ ">" ^ String.sub text tokend (String.length text - tokend) in
-    fudge_into_xml text
-(*      print_string ((String.sub text start (tokend - start+len*4))^"\n");
-    Element ("p", [], [Xml.PCData text]) *)
-    | Xml.Error (msg, pos) -> PCData ((Xml.error_msg msg) ^ " on line " ^ (string_of_int (fst (Xml.abs_range pos))) ^ " " ^ text)
-
 
 let counter = ref 1
 
@@ -156,9 +138,19 @@ let rec fetch_images =
   | Element ("img", attrls, childls) -> 
       (try 
          Element ("img", List.map swap_img attrls, childls)
-       with Http_client.Http_error _ -> PCData "[Missing image]")
-  | PCData _ as p -> p
+       with Http_client.Http_error _ -> Data "[Missing image]")
+  | Data _ as p -> p
   | Element (a,b,ls) -> Element (a, b, List.map fetch_images ls)
+
+
+let xml_to_string e = 
+  let buf = Buffer.create 1 in
+  let ob = new Netchannels.output_buffer buf in
+  let _ = (Nethtml.write ~xhtml:true ob @@ Nethtml.encode ~prefer_name:false)[e] in
+  Buffer.contents buf
+
+let string_to_html = 
+  List.hd @@ Nethtml.parse @@ new Netchannels.input_string
 
 let chaperify (metadata, body) =
   let head = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
@@ -166,19 +158,19 @@ let chaperify (metadata, body) =
   PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">
 " in
   let id = new_chapter_id () in
-  let ls = Element( "h3", [], [Element ("a", ["href", metadata.link], [Xml.PCData metadata.title])])::
-    Element( "p", [], [Element ("i", [], [PCData (metadata.date ^ " " ^ metadata.author)])])::
-    [fudge_into_xml body] in
+  let ls = Element( "h3", [], [Element ("a", ["href", metadata.link], [Data metadata.title])])::
+    Element( "p", [], [Element ("i", [], [Data (metadata.date ^ " " ^ metadata.author)])])::
+    [Element ("p", [], body)] in
   let e = 
     Element ("html", [("xmlns", "http://www.w3.org/1999/xhtml"); ("xml:lang", "en")], [
                Element ("head", [], [
-                          Element ("title", [], [Xml.PCData metadata.title]);
+                          Element ("title", [], [Data metadata.title]);
                           Element ("meta", ["http-equiv","Content-Type";"content","application/xhtml+xml; charset=utf-8"], []);
                         ]);
                Element ("body", [], ls)]
             ) in
   let e = fetch_images e in
-  let body = Xml.to_string_fmt e in
+  let body = xml_to_string e in
     (id, head ^ body)
 
 let get_mime_type filename =
@@ -217,10 +209,10 @@ let opf id title filenames imagefilenames =
                    ) in
   let spinels = List.map (fun name -> Element("itemref", ["idref",name;"linear","yes"], [])) filenames in
   let spine = Element ("spine", ["toc","ncx"], spinels) in
-   let tail = (Xml.to_string_fmt spine) ^ "
+   let tail = (xml_to_string spine) ^ "
 </package>
 " in
-     head ^ (Xml.to_string_fmt e) ^ tail
+     head ^ (xml_to_string e) ^ tail
 
 let toc id title filenames =
   let head = 
@@ -246,13 +238,13 @@ let toc id title filenames =
   let navpoint (title, name) = 
     Element ("navPoint", ["id","content"; "playOrder",new_counter()], [
                Element ("navLabel", [], [
-                          Element ("text", [], [PCData title])
+                          Element ("text", [], [Data title])
                         ]);
                Element ("content", ["src",name], [])
              ])
   in
   let e = Element("navMap", [], List.map navpoint filenames) in
-  head ^ (Xml.to_string_fmt e) ^ tail
+  head ^ (xml_to_string e) ^ tail
 
 let container =
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
@@ -306,9 +298,7 @@ let url2content infile =
      with _ ->
        safe_http_get infile 
    in
-   let id = infile in
-   let (title, items) = get_atom_ls (Xml.parse_string body) in
-     (*publish outdir id title items*)
+   let (title, items) = get_atom_ls (string_to_html body) in
      List.map (fun (metadata, content) -> ({metadata with author = (metadata.author ^ " | " ^ title)}, content)) items
 
 let go atomls outdir =
@@ -327,5 +317,3 @@ let _::outdir::atomls = Array.to_list Sys.argv in
 go atomls outdir;
 let _ = exit 0 in
 Printexc.print_backtrace stdout
-
-
