@@ -50,6 +50,13 @@ let reduce_item = function
   | Element("entry",_, ls) -> 
       let title = get_subelement_Data ls "title" in
       let Element (_, _, content) = get_subelement ls "content" in
+      (* buggy nethtml parser leaves CDATA leftover ...also get rid of &nbsp;*)
+      let rec drop_last = function
+        | Data "]]>  "::[] -> []
+        | Data s::ls -> 
+          Data s::ls
+      in
+      let content = drop_last content in
       let date = String.sub (get_subelement_Data ls "published") 0 10 in
       let authorE = get_subelement ls "author" in
       let link = get_attr "href" (get_subelement ls "link") in
@@ -146,7 +153,7 @@ let rec fetch_images =
 let xml_to_string e = 
   let buf = Buffer.create 1 in
   let ob = new Netchannels.output_buffer buf in
-  let _ = (Nethtml.write ~xhtml:true ob @@ Nethtml.encode ~prefer_name:false)[e] in
+  let _ = (Nethtml.write ~xhtml:true ob(* @@ Nethtml.encode ~prefer_name:false*))[e] in
   Buffer.contents buf
 
 let string_to_html = 
